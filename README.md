@@ -19,6 +19,6 @@ Experts are SwiGLU: \(W_3(\mathrm{SiLU}(xW_1)\odot xW_2)\). Tokens are indexed i
 ## Run
 
 ```bash
-python demo.py
+python main.py
 python -m pytest 09-moe -q
 ```
