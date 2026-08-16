@@ -21,7 +21,7 @@ def main() -> None:
     ds = MoE(16, n_routed=4, d_ff=32, k=2, n_shared=1, gamma=0.01).to(device)
     ds.train()
     y, idx = ds(x)
-    print("default DeepSeekMoE", tuple(y.shape), "idx", idx[0, 0].tolist(), "device", device.type)
+    print("default MoE", tuple(y.shape), "idx", idx[0, 0].tolist(), "device", device.type)
     for _ in range(20):
         ds(torch.randn_like(x))
     print("deepseek bias after load updates", [round(float(b), 4) for b in ds.bias.tolist()])

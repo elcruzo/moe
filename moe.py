@@ -1,8 +1,8 @@
 """DeepSeek-V3 MoE (default) + Mixtral token-choice top-k variant.
 
-Default (`MoE` / `DeepSeekMoE`): sigmoid affinities, L1-normalized gates on the
-selected experts, shared + routed experts, aux-loss-free bias used **only** for
-top-k selection (DeepSeek-V3 §2.1.2). Bias update: b_i -= γ * sign(load_i - mean).
+Default (`MoE`): sigmoid affinities, L1-normalized gates on the selected experts,
+shared + routed experts, aux-loss-free bias used **only** for top-k selection
+(DeepSeek-V3 §2.1.2). Bias update: b_i -= γ * sign(load_i - mean).
 
 Named variant (`MixtralMoE`): softmax over the selected top-k logits + Switch /
 Fedus auxiliary load-balancing loss.
@@ -68,7 +68,7 @@ def _combine_routed(
     return out.view(*prefix, d)
 
 
-class DeepSeekMoE(nn.Module):
+class MoE(nn.Module):
     """DeepSeek-V3 MoE: sigmoid affinity, bias-only-for-topk, L1 gates, shared+routed.
 
     Paper (eqs. 12–16):
@@ -113,10 +113,6 @@ class DeepSeekMoE(nn.Module):
         load = torch.bincount(idx.reshape(-1), minlength=self.n_routed).float()
         mean = load.mean()
         self.bias -= self.gamma * torch.sign(load - mean)
-
-
-# Default export: DeepSeek-V3 routing.
-MoE = DeepSeekMoE
 
 
 class MixtralMoE(nn.Module):

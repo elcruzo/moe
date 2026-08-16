@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import torch
 
-from moe import DeepSeekMoE, MixtralMoE, MoE, _combine_routed, switch_aux_loss
+from moe import MixtralMoE, MoE, _combine_routed, switch_aux_loss
 
-
-def test_default_alias_is_deepseek():
-    assert MoE is DeepSeekMoE
 
 
 def test_top_k_plus_shared_and_shape():
@@ -36,7 +33,7 @@ def test_aux_loss_balanced_zero_collapsed_positive():
 
 
 def test_aux_loss_free_overloaded_bias_decreases():
-    moe = DeepSeekMoE(d_model=8, n_routed=4, d_ff=16, k=2, n_shared=1, gamma=0.05)
+    moe = MoE(d_model=8, n_routed=4, d_ff=16, k=2, n_shared=1, gamma=0.05)
     moe.train()
     with torch.no_grad():
         moe.router.weight.zero_()
@@ -76,7 +73,7 @@ def test_gradients_flow_only_to_selected_experts():
 
 
 def test_deepseek_output_shape_and_shared():
-    moe = DeepSeekMoE(d_model=12, n_routed=3, d_ff=24, k=2, n_shared=2, gamma=0.001)
+    moe = MoE(d_model=12, n_routed=3, d_ff=24, k=2, n_shared=2, gamma=0.001)
     x = torch.randn(1, 7, 12)
     y, idx = moe(x)
     assert y.shape == x.shape
@@ -90,7 +87,7 @@ def test_deepseek_rebuild_y_from_sigmoid_l1_gates():
     expert sum (plus residual + shared) with independent gate math.
     """
     torch.manual_seed(2)
-    moe = DeepSeekMoE(d_model=4, n_routed=3, d_ff=8, k=2, n_shared=1, gamma=0.0)
+    moe = MoE(d_model=4, n_routed=3, d_ff=8, k=2, n_shared=1, gamma=0.0)
     moe.eval()
     with torch.no_grad():
         moe.router.weight.zero_()
@@ -127,7 +124,7 @@ def test_deepseek_rebuild_y_from_sigmoid_l1_gates():
 
 def test_deepseek_bias_not_in_gate_values():
     """Gates come from unbiased s; flipping bias must not change y when idx fixed."""
-    moe = DeepSeekMoE(d_model=4, n_routed=3, d_ff=8, k=2, n_shared=0, gamma=0.0)
+    moe = MoE(d_model=4, n_routed=3, d_ff=8, k=2, n_shared=0, gamma=0.0)
     moe.eval()
     with torch.no_grad():
         moe.router.weight.zero_()
