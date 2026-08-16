@@ -9,6 +9,12 @@ Experts are SwiGLU: \(W_3(\mathrm{SiLU}(xW_1)\odot xW_2)\). Tokens are actually 
 
 Papers: Fedus et al. *Switch Transformers* (2021); Jiang et al. Mixtral (2024); DeepSeek-V3 technical report (2024), §2.1.1 / eqs. for \(g'_{i,t}\).
 
+## Papers on disk
+
+- [`papers/fedus-switch-transformers-2021.pdf`](papers/fedus-switch-transformers-2021.pdf) — Fedus et al. Switch Transformers (2021) ([arXiv:2101.03961](https://arxiv.org/abs/2101.03961))
+- [`papers/jiang-mixtral-2024.pdf`](papers/jiang-mixtral-2024.pdf) — Jiang et al. Mixtral of Experts (2024) ([arXiv:2401.04088](https://arxiv.org/abs/2401.04088))
+- [`papers/deepseek-v3-2024.pdf`](papers/deepseek-v3-2024.pdf) — DeepSeek-AI. DeepSeek-V3 Technical Report (2024) ([arXiv:2412.19437](https://arxiv.org/abs/2412.19437))
+
 ## Run
 
 ```bash
