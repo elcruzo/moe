@@ -1,7 +1,15 @@
-"""Mixture of Experts: Mixtral token-choice top-k + DeepSeek-V3 aux-loss-free routing.
+"""DeepSeek-V3 MoE (default) + Mixtral token-choice top-k variant.
 
-Experts are SwiGLU FFNs. Dispatch actually subsets tokens (unused experts get no forward
-and therefore no gradient). Capacity dropping is omitted; every selected token is kept.
+Default (`MoE` / `DeepSeekMoE`): sigmoid affinities, L1-normalized gates on the
+selected experts, shared + routed experts, aux-loss-free bias used **only** for
+top-k selection (DeepSeek-V3 §2.1.2). Bias update: b_i -= γ * sign(load_i - mean).
+
+Named variant (`MixtralMoE`): softmax over the selected top-k logits + Switch /
+Fedus auxiliary load-balancing loss.
+
+Neither algorithm drops tokens (DeepSeek-V3 §"No Token-Dropping"; Mixtral has no
+capacity factor). Experts are SwiGLU FFNs; dispatch subsets tokens so unused
+experts get no forward / no gradient.
 """
 from __future__ import annotations
 
@@ -60,32 +68,14 @@ def _combine_routed(
     return out.view(*prefix, d)
 
 
-class MixtralMoE(nn.Module):
-    """Token-choice top-k (default k=2): softmax over the *selected* experts only."""
-
-    def __init__(self, d_model: int, n_experts: int, d_ff: int, k: int = 2, n_shared: int = 0):
-        super().__init__()
-        self.n_experts = n_experts
-        self.k = k
-        self.router = nn.Linear(d_model, n_experts, bias=False)
-        self.experts = nn.ModuleList([SwiGLU(d_model, d_ff) for _ in range(n_experts)])
-        self.shared = nn.ModuleList([SwiGLU(d_model, d_ff) for _ in range(n_shared)])
-
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        logits = self.router(x)
-        top_logits, idx = logits.topk(self.k, dim=-1)
-        weights = torch.softmax(top_logits, dim=-1)
-        routed = _combine_routed(x, self.experts, idx, weights)
-        shared = sum((ex(x) for ex in self.shared), start=torch.zeros_like(x))
-        aux = switch_aux_loss(logits, idx, self.n_experts)
-        return routed + shared, idx, aux
-
-
 class DeepSeekMoE(nn.Module):
-    """Aux-loss-free balancing (DeepSeek-V3): bias for top-k only, not for gates.
+    """DeepSeek-V3 MoE: sigmoid affinity, bias-only-for-topk, L1 gates, shared+routed.
 
-    After each training step: b_i -= γ * sign(load_i - mean_load).
-    Shared experts always fire; routed experts are top-k among N_r.
+    Paper (eqs. 12–16):
+      s_{i,t} = sigmoid(u_t^T e_i)
+      select top-k on (s_{i,t} + b_i); gates from unbiased s, L1-renormalized
+      h' = u + sum_shared FFN^s(u) + sum_i g_i FFN^r_i(u)
+      after step: b_i -= γ * sign(load_i - mean_load)
     """
 
     def __init__(
@@ -107,7 +97,6 @@ class DeepSeekMoE(nn.Module):
         self.shared = nn.ModuleList([SwiGLU(d_model, d_ff) for _ in range(n_shared)])
 
     def forward(self, x: torch.Tensor, update_bias: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
-        # DeepSeek-V3: s_{i,t} = sigmoid(u_t^T e_i). Bias is added only for top-k, never for gates.
         scores = torch.sigmoid(self.router(x))
         _, idx = (scores + self.bias).topk(self.k, dim=-1)
         selected = scores.gather(-1, idx)
@@ -116,10 +105,41 @@ class DeepSeekMoE(nn.Module):
         shared = sum((ex(x) for ex in self.shared), start=torch.zeros_like(x))
         if update_bias and self.training:
             self.update_bias(idx)
-        return routed + shared, idx
+        # eq. (12): residual + shared + gated routed
+        return x + shared + routed, idx
 
     @torch.no_grad()
     def update_bias(self, idx: torch.Tensor) -> None:
         load = torch.bincount(idx.reshape(-1), minlength=self.n_routed).float()
         mean = load.mean()
         self.bias -= self.gamma * torch.sign(load - mean)
+
+
+# Default export: DeepSeek-V3 routing.
+MoE = DeepSeekMoE
+
+
+class MixtralMoE(nn.Module):
+    """Named variant: Mixtral token-choice top-k + Switch aux loss.
+
+    Softmax over the *selected* expert logits only (not full N). No capacity
+    dropping (Mixtral does not use a capacity factor). Optional shared experts
+    for A/B with DeepSeek; Mixtral-8x7B itself has no shared experts.
+    """
+
+    def __init__(self, d_model: int, n_experts: int, d_ff: int, k: int = 2, n_shared: int = 0):
+        super().__init__()
+        self.n_experts = n_experts
+        self.k = k
+        self.router = nn.Linear(d_model, n_experts, bias=False)
+        self.experts = nn.ModuleList([SwiGLU(d_model, d_ff) for _ in range(n_experts)])
+        self.shared = nn.ModuleList([SwiGLU(d_model, d_ff) for _ in range(n_shared)])
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        logits = self.router(x)
+        top_logits, idx = logits.topk(self.k, dim=-1)
+        weights = torch.softmax(top_logits, dim=-1)
+        routed = _combine_routed(x, self.experts, idx, weights)
+        shared = sum((ex(x) for ex in self.shared), start=torch.zeros_like(x))
+        aux = switch_aux_loss(logits, idx, self.n_experts)
+        return routed + shared, idx, aux
